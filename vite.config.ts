@@ -24,8 +24,12 @@ export default defineConfig({
             },
         }),
         tailwindcss(),
-        wayfinder({
-            formVariants: true,
-        }),
+        // Avoid running Wayfinder's PHP generation during CI/build environments
+        // because it executes `php artisan wayfinder:generate` (requires DB).
+        ...(process.env.CI === 'true' ? [] : [
+            wayfinder({
+                formVariants: true,
+            }),
+        ]),
     ],
 });
