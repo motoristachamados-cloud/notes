@@ -14,8 +14,14 @@ readonly class DownloadRequestData
 
     public static function fromRequest(DownloadRequest $request, string $type): self
     {
+        $accessKey = $request->string('access_key')->toString();
+
+        if ($accessKey === '') {
+            $accessKey = (string) $request->route('access_key');
+        }
+
         return new self(
-            accessKey: $request->string('access_key')->toString(),
+            accessKey: $accessKey,
             type: $type,
         );
     }

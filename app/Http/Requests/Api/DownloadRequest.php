@@ -12,6 +12,16 @@ class DownloadRequest extends FormRequest
     }
 
     /**
+     * Include route parameters in validation data so GET routes with path params work.
+     *
+     * @return array<string, mixed>
+     */
+    public function validationData(): array
+    {
+        return array_merge($this->all(), $this->route()->parameters());
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function rules(): array

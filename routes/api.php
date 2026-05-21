@@ -14,6 +14,4 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/me', MeController::class);
     Route::get('/wallet', WalletController::class);
     Route::post('/payments/create', [PaymentsController::class, 'create']);
-    Route::post('/download/xml', [DownloadController::class, 'xml']);
-    Route::post('/download/pdf', [DownloadController::class, 'pdf']);
 });

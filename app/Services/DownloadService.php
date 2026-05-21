@@ -4,9 +4,7 @@ namespace App\Services;
 
 use App\DTOs\DownloadRequestData;
 use App\Models\AccessKey;
-use App\Models\FinancialTransaction;
 use App\Models\User;
-use App\Models\Wallet;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -22,15 +20,6 @@ class DownloadService
     public function download(User $user, DownloadRequestData $data): array
     {
         return DB::transaction(function () use ($user, $data): array {
-            $wallet = Wallet::query()->where('user_id', $user->id)->lockForUpdate()->first();
-
-            if ($wallet === null) {
-                $wallet = Wallet::query()->create([
-                    'user_id' => $user->id,
-                    'balance' => 0,
-                ]);
-            }
-
             $alreadyConsumed = AccessKey::query()
                 ->where('user_id', $user->id)
                 ->where('access_key', $data->accessKey)
@@ -38,24 +27,17 @@ class DownloadService
                 ->exists();
 
             if (! $alreadyConsumed) {
-                if ($wallet->balance < 1) {
-                    throw new RuntimeException('Saldo insuficiente');
+                try {
+                    AccessKey::query()->create([
+                        'user_id' => $user->id,
+                        'access_key' => $data->accessKey,
+                        'type' => $data->type,
+                    ]);
+                } catch (\Illuminate\Database\QueryException $exception) {
+                    if (! str_contains($exception->getMessage(), 'uq_access_key_user_type')) {
+                        throw $exception;
+                    }
                 }
-
-                $wallet->decrement('balance', 1);
-
-                FinancialTransaction::query()->create([
-                    'user_id' => $user->id,
-                    'type' => 'debit',
-                    'amount' => 1,
-                    'description' => sprintf('Download %s para chave %s', strtoupper($data->type), $data->accessKey),
-                ]);
-
-                AccessKey::query()->create([
-                    'user_id' => $user->id,
-                    'access_key' => $data->accessKey,
-                    'type' => $data->type,
-                ]);
             }
 
             $this->meuDanfe->addFiscalDocument($data->accessKey);
