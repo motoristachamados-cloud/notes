@@ -7,10 +7,12 @@ import { bunny } from 'laravel-vite-plugin/fonts';
 import { defineConfig } from 'vite';
 import path from 'path';
 
+const isCI = process.env.CI === 'true' || process.env.CI === '1' || process.env.RAILPACK === 'true' || process.env.GITHUB_ACTIONS === 'true';
+
 export default defineConfig({
     resolve: {
         alias: {
-            '@': path.resolve(__dirname, 'resources/js'),
+            '@': path.resolve(process.cwd(), 'resources/js'),
         },
     },
     plugins: [
@@ -32,10 +34,10 @@ export default defineConfig({
         tailwindcss(),
         // Avoid running Wayfinder's PHP generation during CI/build environments
         // because it executes `php artisan wayfinder:generate` (requires DB).
-        ...(process.env.CI === 'true' ? [] : [
+        ...(!isCI ? [
             wayfinder({
                 formVariants: true,
             }),
-        ]),
+        ] : []),
     ],
 });
