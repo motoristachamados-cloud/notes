@@ -32,6 +32,12 @@ export default function Welcome() {
                                 >
                                     Register
                                 </Link>
+                                        <a
+                                            href="/auth/google"
+                                            className="inline-block ml-2 rounded-sm border border-[#19140035] bg-white px-5 py-1.5 text-sm leading-normal text-[#1b1b18] hover:bg-[#f4f4f4] dark:bg-[#222] dark:text-[#EDEDEC]"
+                                        >
+                                            Entrar com Google
+                                        </a>
                             </>
                         )}
                     </nav>
