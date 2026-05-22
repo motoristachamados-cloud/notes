@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/auth/google', [AuthController::class, 'google']);
 Route::post('/payments/webhook', [PaymentsController::class, 'webhook'])->middleware('throttle:30,1');
+Route::post('/webhooks/mercado-pago', [PaymentsController::class, 'webhook'])->middleware('throttle:30,1');
 
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/me', MeController::class);

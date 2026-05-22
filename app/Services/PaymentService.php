@@ -53,7 +53,7 @@ class PaymentService
                 'metadata' => [
                     'credits' => $credits,
                 ],
-                'notification_url' => rtrim(config('app.url'), '/') . '/api/payments/webhook',
+                'notification_url' => config('services.mercadopago.webhook_url', rtrim(config('app.url'), '/') . '/api/payments/webhook'),
                 'back_urls' => [
                     'success' => rtrim(config('app.url'), '/') . '/',
                     'pending' => rtrim(config('app.url'), '/') . '/',
