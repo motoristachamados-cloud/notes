@@ -41,7 +41,9 @@ return [
     ],
 
     'mercadopago' => [
-        'access_token' => env('MERCADOPAGO_ACCESS_TOKEN'),
+        'access_token' => env('MERCADO_PAGO_ACCESS_TOKEN'),
+        'mode' => env('MERCADO_PAGO_MODE', 'production'),
+        'public_key' => env('MERCADO_PAGO_PUBLIC_KEY'),
     ],
 
     'google' => [

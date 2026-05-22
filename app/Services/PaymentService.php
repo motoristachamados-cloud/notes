@@ -31,10 +31,54 @@ class PaymentService
 
         $creditPrice = $this->settings->getInt('credit_price', 6);
 
+        $amountCents = $credits * $creditPrice;
+        $token = (string) config('services.mercadopago.access_token');
+
+        if ($token === '') {
+            throw new RuntimeException('Mercado Pago não configurado no ambiente.');
+        }
+
+        $response = $this->http->withToken($token)
+            ->acceptJson()
+            ->post('https://api.mercadopago.com/checkout/preferences', [
+                'items' => [
+                    [
+                        'title' => 'Créditos EBD SYSTEMS',
+                        'quantity' => $credits,
+                        'unit_price' => round($creditPrice / 100, 2),
+                        'currency_id' => 'BRL',
+                    ],
+                ],
+                'external_reference' => (string) $user->id,
+                'metadata' => [
+                    'credits' => $credits,
+                ],
+                'notification_url' => rtrim(config('app.url'), '/') . '/api/payments/webhook',
+                'back_urls' => [
+                    'success' => rtrim(config('app.url'), '/') . '/',
+                    'pending' => rtrim(config('app.url'), '/') . '/',
+                    'failure' => rtrim(config('app.url'), '/') . '/',
+                ],
+                'auto_return' => 'approved',
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Falha ao criar preferências de pagamento no Mercado Pago.');
+        }
+
+        $mode = config('services.mercadopago.mode', env('MERCADO_PAGO_MODE', 'production'));
+        $checkoutUrl = $mode !== 'production'
+            ? $response->json('sandbox_init_point')
+            : $response->json('init_point');
+
+        if (! is_string($checkoutUrl) || $checkoutUrl === '') {
+            throw new RuntimeException('URL de checkout do Mercado Pago não foi retornada.');
+        }
+
         return [
             'credits' => $credits,
-            'amount_cents' => $credits * $creditPrice,
-            'checkout_url' => null,
+            'amount_cents' => $amountCents,
+            'checkout_url' => $checkoutUrl,
         ];
     }
 
