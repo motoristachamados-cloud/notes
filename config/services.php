@@ -44,6 +44,13 @@ return [
         'access_token' => env('MERCADO_PAGO_ACCESS_TOKEN'),
         'mode' => env('MERCADO_PAGO_MODE', 'production'),
         'public_key' => env('MERCADO_PAGO_PUBLIC_KEY'),
+        'client_id' => env('MERCADO_PAGO_CLIENT_ID'),
+        'client_secret' => env('MERCADO_PAGO_CLIENT_SECRET'),
+        'redirect_uri' => env('MERCADO_PAGO_REDIRECT_URI'),
+        'oauth_scopes' => env('MERCADO_PAGO_OAUTH_SCOPES'),
+        'card_checkout_enabled' => filter_var(env('MERCADO_PAGO_CARD_CHECKOUT_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'webhook_url' => env('MERCADO_PAGO_WEBHOOK_URL'),
+        'webhook_secret' => env('MERCADO_PAGO_WEBHOOK_SECRET'),
     ],
 
     'google' => [

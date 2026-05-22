@@ -2,6 +2,16 @@
 
 use Illuminate\Support\Str;
 
+// Normalize session-related environment values
+$sessionDomain = env('SESSION_DOMAIN');
+$shareAcross = filter_var(env('SESSION_SHARE_ACROSS_SUBDOMAINS', false), FILTER_VALIDATE_BOOLEAN);
+if ($shareAcross && $sessionDomain) {
+    // Ensure leading dot for cross-subdomain cookies
+    if (strpos($sessionDomain, '.') !== 0) {
+        $sessionDomain = '.' . $sessionDomain;
+    }
+}
+
 return [
 
     /*
@@ -32,7 +42,7 @@ return [
     |
     */
 
-    'lifetime' => (int) env('SESSION_LIFETIME', 120),
+    'lifetime' => (int) env('SESSION_INACTIVITY_TIMEOUT', env('SESSION_LIFETIME', 120)),
 
     'expire_on_close' => env('SESSION_EXPIRE_ON_CLOSE', false),
 
@@ -156,7 +166,7 @@ return [
     |
     */
 
-    'domain' => env('SESSION_DOMAIN'),
+    'domain' => $sessionDomain,
 
     /*
     |--------------------------------------------------------------------------
