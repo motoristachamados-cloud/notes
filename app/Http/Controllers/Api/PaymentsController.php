@@ -12,10 +12,14 @@ use Throwable;
 
 class PaymentsController extends Controller
 {
-    public function __construct(private readonly PaymentService $payments)
-    {
+    public function __construct(
+        private readonly PaymentService $payments,
+    ) {
     }
 
+    /**
+     * Cria pagamento Mercado Pago.
+     */
     public function create(CreatePaymentRequest $request)
     {
         try {
@@ -25,25 +29,92 @@ class PaymentsController extends Controller
             );
 
             return ApiResponse::success($data);
+
         } catch (InvalidArgumentException $exception) {
-            return ApiResponse::error($exception->getMessage());
+            return ApiResponse::error(
+                $exception->getMessage(),
+                422,
+            );
+
         } catch (Throwable $exception) {
             report($exception);
 
-            return ApiResponse::error('Falha ao criar pagamento.', 500);
+            return ApiResponse::error(
+                'Falha ao criar pagamento.',
+                500,
+            );
         }
     }
 
+    /**
+     * Webhook oficial Mercado Pago.
+     */
     public function webhook(PaymentWebhookRequest $request)
     {
         try {
-            $this->payments->handleWebhook($request->string('payment_id')->toString());
 
-            return ApiResponse::success();
+            /*
+            |--------------------------------------------------------------------------
+            | Mercado Pago envia:
+            |--------------------------------------------------------------------------
+            |
+            | {
+            |   "data": {
+            |     "id": "123456"
+            |   }
+            | }
+            |
+            */
+
+            $paymentId = $request->input('data.id');
+
+            /*
+            |--------------------------------------------------------------------------
+            | Validação
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                ! is_string($paymentId)
+                && ! is_int($paymentId)
+            ) {
+                return ApiResponse::error(
+                    'Pagamento inválido.',
+                    422,
+                );
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Processa pagamento
+            |--------------------------------------------------------------------------
+            */
+
+            $this->payments->handleWebhook(
+                (string) $paymentId,
+            );
+
+            /*
+            |--------------------------------------------------------------------------
+            | Resposta webhook
+            |--------------------------------------------------------------------------
+            |
+            | Mercado Pago espera resposta 200.
+            |
+            */
+
+            return ApiResponse::success([
+                'processed' => true,
+            ]);
+
         } catch (Throwable $exception) {
+
             report($exception);
 
-            return ApiResponse::error('Falha ao processar webhook.', 500);
+            return ApiResponse::error(
+                'Falha ao processar webhook.',
+                500,
+            );
         }
     }
 }
