@@ -52,7 +52,7 @@ export default function Dashboard() {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
                 },
-                credentials: 'same-origin',
+                credentials: 'include',
                 body: JSON.stringify({ credits: amount }),
             });
 
@@ -104,7 +104,7 @@ export default function Dashboard() {
                     'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                 },
-                credentials: 'same-origin',
+                credentials: 'include',
             });
 
             const payload = await response.json().catch(() => null);
@@ -132,7 +132,7 @@ export default function Dashboard() {
                     try {
                         const r = await fetch(`${API_DOWNLOAD_URL}/result/${token}`, {
                             method: 'GET',
-                            credentials: 'same-origin',
+                            credentials: 'include',
                         });
 
                         if (r.status === 202) {
