@@ -47,22 +47,49 @@ class AppServiceProvider extends ServiceProvider
     {
         Date::use(CarbonImmutable::class);
 
-        if (app()->isProduction()) {
+        /*
+        |--------------------------------------------------------------------------
+        | HTTPS
+        |--------------------------------------------------------------------------
+        |
+        | Necessário para:
+        | - Railway
+        | - Mercado Pago
+        | - Google OAuth
+        | - Sanctum
+        | - Cookies secure
+        |
+        */
+
+        if ($this->app->isProduction()) {
             URL::forceScheme('https');
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Proteção contra comandos destrutivos
+        |--------------------------------------------------------------------------
+        */
+
         DB::prohibitDestructiveCommands(
-            app()->isProduction(),
+            $this->app->isProduction(),
         );
 
-        Password::defaults(fn (): ?Password => app()->isProduction()
-            ? Password::min(12)
+        /*
+        |--------------------------------------------------------------------------
+        | Política de senha
+        |--------------------------------------------------------------------------
+        */
+
+        Password::defaults(
+            fn(): ?Password => $this->app->isProduction()
+                ? Password::min(12)
                 ->mixedCase()
                 ->letters()
                 ->numbers()
                 ->symbols()
                 ->uncompromised()
-            : null,
+                : null,
         );
     }
 }
