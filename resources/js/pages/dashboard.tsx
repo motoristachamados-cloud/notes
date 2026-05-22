@@ -25,6 +25,66 @@ export default function Dashboard() {
     const [error, setError] = useState<string | null>(null);
     const [status, setStatus] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [creditAmount, setCreditAmount] = useState('50');
+    const [qrValue, setQrValue] = useState<string | null>(null);
+    const [qrError, setQrError] = useState<string | null>(null);
+    const [qrStatus, setQrStatus] = useState<string | null>(null);
+    const [creditLoading, setCreditLoading] = useState(false);
+
+    const handleGenerateCreditQr = async () => {
+        const amount = Number(creditAmount);
+
+        if (!Number.isInteger(amount) || amount < 50) {
+            setQrError('Informe um valor inteiro maior ou igual a 50.');
+            setQrValue(null);
+            setQrStatus(null);
+            return;
+        }
+
+        setQrError(null);
+        setQrStatus('Gerando QR code do Mercado Pago...');
+        setCreditLoading(true);
+
+        try {
+            const response = await fetch('/api/payments/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({ credits: amount }),
+            });
+
+            const payload = await response.json().catch(() => null);
+
+            if (!response.ok || payload?.success !== true) {
+                const message = payload?.message || `Falha ao criar pagamento: ${response?.status ?? response.status}`;
+                setQrError(message);
+                setQrValue(null);
+                setQrStatus(null);
+                return;
+            }
+
+            const checkoutUrl = payload.checkout_url;
+
+            if (!checkoutUrl || typeof checkoutUrl !== 'string') {
+                setQrError('Checkout do Mercado Pago não retornou URL válida.');
+                setQrValue(null);
+                setQrStatus(null);
+                return;
+            }
+
+            setQrValue(checkoutUrl);
+            setQrStatus('QR code do Mercado Pago pronto para escanear.');
+        } catch (exception) {
+            setQrError('Erro ao criar pagamento. Tente novamente mais tarde.');
+            setQrValue(null);
+            setQrStatus(null);
+        } finally {
+            setCreditLoading(false);
+        }
+    };
 
     const handleDownload = async (type: 'pdf' | 'xml') => {
         setError(null);
@@ -120,7 +180,38 @@ export default function Dashboard() {
             <div className="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
                 <div className="grid auto-rows-min gap-4 md:grid-cols-3">
                     <div className="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
-                        <PlaceholderPattern className="absolute inset-0 size-full stroke-neutral-900/20 dark:stroke-neutral-100/20" />
+                        <PlaceholderPattern className="absolute inset-0 size-full stroke-neutral-900/20 dark:stroke-neutral-100/20" qrValue={qrValue ?? undefined}>
+                            <div className="relative z-10 flex h-full flex-col justify-center items-center gap-4 bg-background/60 p-4">
+                                    <div className="w-full text-center">
+                                        <div className="text-lg font-semibold leading-tight">Comprar créditos</div>
+                                        <p className="text-base text-muted-foreground">Mínimo: 50</p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            id="credit_amount_small"
+                                            name="credit_amount_small"
+                                            type="number"
+                                            min={50}
+                                            step={1}
+                                            value={creditAmount}
+                                            onChange={(event) => setCreditAmount(event.target.value.replace(/[^0-9]/g, ''))}
+                                            className="mt-0 w-32 h-10 text-base"
+                                        />
+                                        <Button disabled={creditLoading} onClick={handleGenerateCreditQr} size="sm">
+                                            Gerar
+                                        </Button>
+                                    </div>
+
+                                    {qrValue ? (
+                                        <p className="text-base text-foreground truncate">Checkout</p>
+                                    ) : qrStatus ? (
+                                        <p className="text-base text-foreground">{qrStatus}</p>
+                                    ) : qrError ? (
+                                        <p className="text-base text-destructive">{qrError}</p>
+                                    ) : null}
+                                </div>
+                        </PlaceholderPattern>
                     </div>
                     <div className="relative aspect-video overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border">
                         <PlaceholderPattern className="absolute inset-0 size-full stroke-neutral-900/20 dark:stroke-neutral-100/20" />
@@ -184,10 +275,6 @@ export default function Dashboard() {
                             </Button>
                         </div>
                     </div>
-                </div>
-
-                <div className="relative min-h-[100vh] flex-1 overflow-hidden rounded-xl border border-sidebar-border/70 md:min-h-min dark:border-sidebar-border">
-                    <PlaceholderPattern className="absolute inset-0 size-full stroke-neutral-900/20 dark:stroke-neutral-100/20" />
                 </div>
             </div>
         </>
