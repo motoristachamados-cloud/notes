@@ -100,7 +100,7 @@ export default function Dashboard() {
             }
 
             const checkoutUrl =
-                payload?.data?.checkout_url;
+                payload?.checkout_url;
 
             if (
                 !checkoutUrl
