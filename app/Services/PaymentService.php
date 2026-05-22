@@ -209,9 +209,21 @@ class PaymentService
             );
 
         if ($response->failed()) {
-            throw new RuntimeException(
-                'Não foi possível validar pagamento no Mercado Pago.'
-            );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Mercado Pago envia IDs fictícios em testes webhook.
+    |--------------------------------------------------------------------------
+    */
+
+    if ($response->status() === 404) {
+        return;
+    }
+
+    throw new RuntimeException(
+        'Não foi possível validar pagamento no Mercado Pago.'
+    );
+
         }
 
         /*
