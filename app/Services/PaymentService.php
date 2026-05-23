@@ -89,6 +89,7 @@ class PaymentService
         |--------------------------------------------------------------------------
         */
 
+        /** @var \Illuminate\Http\Client\Response $response */
         $response = $this->http
             ->withToken($token)
             ->acceptJson()
@@ -112,10 +113,21 @@ class PaymentService
             ]);
 
         if ($response->failed()) {
-            throw new RuntimeException(
-                'Falha ao gerar pagamento Pix no Mercado Pago: '
-                . $response->body()
-            );
+            logger()->error('Erro ao criar pagamento PIX no Mercado Pago.', [
+                'status' => $response?->status(),
+                'headers' => $response?->headers(),
+                'body' => $response?->body(),
+                'json' => $response?->json(),
+                'credits' => $credits,
+                'amount_cents' => $amountCents,
+                'user_id' => $user->id,
+                'webhook_url' => $webhookUrl,
+            ]);
+
+            throw new RuntimeException(sprintf(
+                'Mercado Pago retornou erro HTTP %s ao criar pagamento PIX.',
+                $response->status()
+            ));
         }
 
         $paymentData = $response->json();
@@ -127,6 +139,13 @@ class PaymentService
                 'O Mercado Pago não retornou um ID de pagamento válido.'
             );
         }
+
+        logger()->info('Pagamento PIX criado com sucesso.', [
+            'payment_id' => $paymentId,
+            'status' => $response?->status(),
+            'user_id' => $user->id,
+            'amount_cents' => $amountCents,
+        ]);
 
         $transactionData = $paymentData['point_of_interaction']['transaction_data'] ?? [];
 
@@ -181,6 +200,7 @@ class PaymentService
         |--------------------------------------------------------------------------
         */
 
+        /** @var \Illuminate\Http\Client\Response $response */
         $response = $this->http
             ->withToken($token)
             ->acceptJson()
@@ -199,9 +219,19 @@ class PaymentService
         }
 
         if ($response->failed()) {
-            throw new RuntimeException(
-                'Não foi possível validar pagamento no Mercado Pago.'
-            );
+            logger()->error('Erro ao validar webhook Mercado Pago.', [
+                'payment_id' => $paymentId,
+                'status' => $response?->status(),
+                'headers' => $response?->headers(),
+                'body' => $response?->body(),
+                'json' => $response?->json(),
+            ]);
+
+            throw new RuntimeException(sprintf(
+                'Mercado Pago HTTP %s: %s',
+                $response->status(),
+                $response->body()
+            ));
         }
 
         /*

@@ -362,7 +362,7 @@ export default function Dashboard() {
                             qrValue={qrValue ?? undefined}
                         >
 
-                            <div className="relative z-10 flex h-full flex-col items-center justify-center gap-4 bg-background/70 p-4">
+                            <div className="relative z-10 flex h-full flex-col items-center justify-center gap-4 bg-background/40 backdrop-blur-sm p-4">
 
                                 <div className="text-center">
 
@@ -370,9 +370,11 @@ export default function Dashboard() {
                                         QR Code PIX
                                     </div>
 
-                                    <p className="text-sm text-muted-foreground">
-                                        Escaneie para concluir o pagamento
-                                    </p>
+                                    {!qrValue && !qrError && (
+                                        <p className="text-sm text-muted-foreground">
+                                            Gere uma recarga para visualizar
+                                        </p>
+                                    )}
                                 </div>
 
                                 {qrBase64 && (
