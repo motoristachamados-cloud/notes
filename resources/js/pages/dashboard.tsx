@@ -33,6 +33,7 @@ export default function Dashboard() {
     const [creditAmount, setCreditAmount] = useState('50');
 
     const [qrValue, setQrValue] = useState<string | null>(null);
+    const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
     const [qrError, setQrError] = useState<string | null>(null);
     const [qrStatus, setQrStatus] = useState<string | null>(null);
 
@@ -99,24 +100,28 @@ export default function Dashboard() {
                 return;
             }
 
-            const checkoutUrl =
-                payload?.checkout_url;
+            const mpPixCode = payload?.qr_code;
+            const mpCheckoutUrl = payload?.checkout_url;
 
             if (
-                !checkoutUrl
-                || typeof checkoutUrl !== 'string'
+                !mpPixCode ||
+                !mpCheckoutUrl ||
+                typeof mpPixCode !== 'string' ||
+                typeof mpCheckoutUrl !== 'string'
             ) {
                 setQrError(
-                    'Checkout do Mercado Pago não retornou URL válida.',
+                    'O servidor não retornou os dados de pagamento válidos.',
                 );
 
                 setQrValue(null);
+                setCheckoutUrl(null);
                 setQrStatus(null);
 
                 return;
             }
 
-            setQrValue(checkoutUrl);
+            setQrValue(mpPixCode);
+            setCheckoutUrl(mpCheckoutUrl);
 
             setQrStatus(
                 'QR code PIX gerado com sucesso.',
@@ -129,6 +134,7 @@ export default function Dashboard() {
             );
 
             setQrValue(null);
+            setCheckoutUrl(null);
             setQrStatus(null);
 
         } finally {
@@ -369,9 +375,9 @@ export default function Dashboard() {
                                     </p>
                                 </div>
 
-                                {qrValue ? (
+                                {checkoutUrl ? (
                                     <a
-                                        href={qrValue}
+                                        href={checkoutUrl}
                                         target="_blank"
                                         rel="noreferrer"
                                         className="text-sm underline"
