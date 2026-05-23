@@ -21,32 +21,73 @@ class DownloadService
      */
     public function download(User $user, DownloadRequestData $data): array
     {
-        return DB::transaction(function () use ($user, $data): array {
-            /**
-             * 1. Verificar se o documento já foi pago anteriormente.
-             */
-            $alreadyConsumed = AccessKey::query()
-                ->where('user_id', $user->id)
-                ->where('access_key', $data->accessKey)
-                ->where('type', $data->type)
-                ->exists();
+        /**
+         * 1. Verificar se o documento já foi pago anteriormente por este usuário.
+         */
+        $alreadyConsumed = AccessKey::query()
+            ->where('user_id', $user->id)
+            ->where('access_key', $data->accessKey)
+            ->where('type', $data->type)
+            ->exists();
 
-            if (! $alreadyConsumed) {
+        if (! $alreadyConsumed) {
+            /**
+             * 2. Verificação prévia de saldo (sem lock) para evitar chamadas de API inúteis.
+             */
+            $balance = Wallet::query()->where('user_id', $user->id)->value('balance') ?? 0;
+            if ($balance < 1) {
+                throw new RuntimeException('Saldo insuficiente para iniciar o download.');
+            }
+
+            /**
+             * 3. Chamar a API externa primeiro (Garantir processamento no MeuDanfe).
+             * Se a API falhar, o erro sobe, o Job fará retry (se erro temporário)
+             * e o débito não ocorre.
+             */
+            $this->meuDanfe->addFiscalDocument($data->accessKey);
+        }
+
+        /**
+         * 4. Buscar conteúdo (XML ou PDF).
+         */
+        $content = match ($data->type) {
+            'xml' => $this->meuDanfe->getXml($data->accessKey),
+            'pdf' => $this->meuDanfe->getPdf($data->accessKey),
+            default => throw new RuntimeException('Tipo de download inválido.'),
+        };
+
+        /**
+         * 5. Se o download foi bem sucedido e não foi pago anteriormente, realizar débito.
+         */
+        if (! $alreadyConsumed) {
+            DB::transaction(function () use ($user, $data) {
                 /**
-                 * 2. Bloquear carteira para atualização (lockForUpdate).
-                 * Evita concorrência e saldo negativo.
+                 * Re-verificar consumo dentro da transação para lidar com concorrência.
+                 */
+                $exists = AccessKey::query()
+                    ->where('user_id', $user->id)
+                    ->where('access_key', $data->accessKey)
+                    ->where('type', $data->type)
+                    ->exists();
+
+                if ($exists) {
+                    return;
+                }
+
+                /**
+                 * Bloquear carteira para atualização (lockForUpdate).
                  */
                 $wallet = Wallet::query()
                     ->where('user_id', $user->id)
                     ->lockForUpdate()
                     ->first();
 
-                if (!$wallet || $wallet->balance < 1) {
-                    throw new RuntimeException('Saldo insuficiente para realizar o download.');
+                if (! $wallet || $wallet->balance < 1) {
+                    throw new RuntimeException('Saldo insuficiente para finalizar o download.');
                 }
 
                 /**
-                 * 3. Registrar o consumo e realizar o débito.
+                 * Efetivar débito e registrar acesso.
                  */
                 $wallet->decrement('balance', 1);
 
@@ -62,30 +103,13 @@ class DownloadService
                     'access_key' => $data->accessKey,
                     'type' => $data->type,
                 ]);
-            }
+            });
+        }
 
-            /**
-             * 4. Chamar a API externa.
-             */
-            $this->meuDanfe->addFiscalDocument($data->accessKey);
-
-            if ($data->type === 'xml') {
-                return [
-                    'content' => $this->meuDanfe->getXml($data->accessKey),
-                    'mime' => 'application/xml',
-                    'filename' => $data->accessKey . '.xml',
-                ];
-            }
-
-            if ($data->type === 'pdf') {
-                return [
-                    'content' => $this->meuDanfe->getPdf($data->accessKey),
-                    'mime' => 'application/pdf',
-                    'filename' => $data->accessKey . '.pdf',
-                ];
-            }
-
-            throw new RuntimeException('Tipo de download inválido.');
-        });
+        return [
+            'content' => $content,
+            'mime' => $data->type === 'xml' ? 'application/xml' : 'application/pdf',
+            'filename' => $data->accessKey . ($data->type === 'xml' ? '.xml' : '.pdf'),
+        ];
     }
 }

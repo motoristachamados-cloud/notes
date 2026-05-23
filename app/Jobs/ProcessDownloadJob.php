@@ -39,11 +39,6 @@ class ProcessDownloadJob implements ShouldQueue
      */
     public int $timeout = 120;
 
-    /**
-     * Tempo máximo antes do job expirar completamente.
-     */
-    public int $retryUntilSeconds = 600;
-
     public function __construct(
         public readonly User $user,
         public readonly DownloadRequestData $data,

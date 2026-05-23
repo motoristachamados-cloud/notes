@@ -21,6 +21,10 @@ class PaymentService
      * @return array{
      *     credits: int,
      *     amount_cents: int,
+     *     payment_id: string,
+     *     qr_code: string,
+     *     qr_code_base64: string,
+     *     pix_copy_paste: string,
      *     checkout_url: string
      * }
      */
@@ -81,54 +85,68 @@ class PaymentService
 
         /*
         |--------------------------------------------------------------------------
-        | URL DE RETORNO
-        |--------------------------------------------------------------------------
-        */
-
-        $returnUrl = $appUrl . '/billing';
-
-        /*
-        |--------------------------------------------------------------------------
         | CRIAÇÃO DE PAGAMENTO PIX (API v1)
         |--------------------------------------------------------------------------
         */
 
-        $response = $this->http->withToken($token)->acceptJson()->post('https://api.mercadopago.com/v1/payments', [
-            'transaction_amount' => round($amountCents / 100, 2),
-            'description' => "Recarga de {$credits} créditos",
-            'payment_method_id' => 'pix',
-            'external_reference' => (string) $user->id,
-            'notification_url' => $webhookUrl,
-            'payer' => [
-                'email' => $user->email,
-                'first_name' => explode(' ', $user->name)[0],
-            ],
-            'metadata' => [
-                'credits' => $credits,
-                'user_id' => $user->id,
-            ],
-        ]);
+        $response = $this->http
+            ->withToken($token)
+            ->acceptJson()
+            ->post('https://api.mercadopago.com/v1/payments', [
+                'transaction_amount' => round($amountCents / 100, 2),
+                'description' => "Recarga de {$credits} créditos",
+                'payment_method_id' => 'pix',
+                'external_reference' => (string) $user->id,
+
+                'notification_url' => $webhookUrl,
+
+                'payer' => [
+                    'email' => $user->email,
+                    'first_name' => explode(' ', $user->name)[0],
+                ],
+
+                'metadata' => [
+                    'credits' => $credits,
+                    'user_id' => $user->id,
+                ],
+            ]);
 
         if ($response->failed()) {
-            throw new RuntimeException('Falha ao gerar pagamento Pix no Mercado Pago: ' . $response->body());
+            throw new RuntimeException(
+                'Falha ao gerar pagamento Pix no Mercado Pago: '
+                . $response->body()
+            );
         }
 
         $paymentData = $response->json();
-        $paymentId = (string) $paymentData['id'];
-        $qrCode = $paymentData['point_of_interaction']['transaction_data']['qr_code'] ?? '';
-        $qrCodeBase64 = $paymentData['point_of_interaction']['transaction_data']['qr_code_base64'] ?? '';
-        $ticketUrl = $paymentData['point_of_interaction']['transaction_data']['ticket_url'] ?? '';
+
+        $paymentId = (string) ($paymentData['id'] ?? '');
+
+        if ($paymentId === '') {
+            throw new RuntimeException(
+                'O Mercado Pago não retornou um ID de pagamento válido.'
+            );
+        }
+
+        $transactionData = $paymentData['point_of_interaction']['transaction_data'] ?? [];
+
+        $qrCode = (string) ($transactionData['qr_code'] ?? '');
+
+        $qrCodeBase64 = (string) ($transactionData['qr_code_base64'] ?? '');
+
+        $ticketUrl = (string) ($transactionData['ticket_url'] ?? '');
 
         /*
         |--------------------------------------------------------------------------
         | PERSISTÊNCIA NO BANCO (STATUS PENDING)
         |--------------------------------------------------------------------------
         */
+
         FinancialTransaction::query()->create([
             'user_id' => $user->id,
             'type' => 'credit',
             'amount' => $credits,
-            'description' => "Recarga de créditos (Pix)",
+            'description' => 'Recarga de créditos (Pix)',
             'mercadopago_payment_id' => $paymentId,
             'status' => 'pending',
             'pix_qr_code' => $qrCode,
@@ -142,7 +160,7 @@ class PaymentService
             'payment_id' => $paymentId,
             'qr_code' => $qrCode,
             'qr_code_base64' => $qrCodeBase64,
-            'copy_link' => $qrCode,
+            'pix_copy_paste' => $qrCode,
             'checkout_url' => $ticketUrl,
         ];
     }
@@ -170,18 +188,17 @@ class PaymentService
                 'https://api.mercadopago.com/v1/payments/' . $paymentId
             );
 
+        /*
+        |--------------------------------------------------------------------------
+        | Mercado Pago envia IDs fictícios em testes webhook
+        |--------------------------------------------------------------------------
+        */
+
+        if ($response->status() === 404) {
+            return;
+        }
+
         if ($response->failed()) {
-
-            /*
-    |--------------------------------------------------------------------------
-    | Mercado Pago envia IDs fictícios em testes webhook.
-    |--------------------------------------------------------------------------
-    */
-
-            if ($response->status() === 404) {
-                return;
-            }
-
             throw new RuntimeException(
                 'Não foi possível validar pagamento no Mercado Pago.'
             );
@@ -221,11 +238,23 @@ class PaymentService
         | TRANSAÇÃO
         |--------------------------------------------------------------------------
         */
-        DB::transaction(function () use ($userId, $credits, $paymentId): void {
+
+        DB::transaction(function () use (
+            $userId,
+            $credits,
+            $paymentId
+        ): void {
+
             $wallet = Wallet::query()
                 ->where('user_id', $userId)
                 ->lockForUpdate()
                 ->first();
+
+            /*
+            |--------------------------------------------------------------------------
+            | CRIA CARTEIRA
+            |--------------------------------------------------------------------------
+            */
 
             if ($wallet === null) {
                 $wallet = Wallet::query()->create([
@@ -234,13 +263,23 @@ class PaymentService
                 ]);
             }
 
-            // Busca a transação existente criada no createPayment
+            /*
+            |--------------------------------------------------------------------------
+            | TRANSAÇÃO EXISTENTE
+            |--------------------------------------------------------------------------
+            */
+
             $transaction = FinancialTransaction::query()
                 ->where('mercadopago_payment_id', $paymentId)
                 ->lockForUpdate()
                 ->first();
 
-            // Se já estiver aprovada, não faz nada
+            /*
+            |--------------------------------------------------------------------------
+            | EVITA DUPLICIDADE
+            |--------------------------------------------------------------------------
+            */
+
             if ($transaction && $transaction->status === 'approved') {
                 return;
             }
@@ -250,20 +289,32 @@ class PaymentService
             | ADICIONA SALDO
             |--------------------------------------------------------------------------
             */
+
             $wallet->increment('balance', $credits);
 
+            /*
+            |--------------------------------------------------------------------------
+            | ATUALIZA OU CRIA TRANSAÇÃO
+            |--------------------------------------------------------------------------
+            */
+
             if ($transaction) {
-                $transaction->update(['status' => 'approved']);
-            } else {
-                FinancialTransaction::query()->create([
-                    'user_id' => $userId,
-                    'type' => 'credit',
-                    'amount' => $credits,
-                    'description' => 'Recarga de créditos via Mercado Pago',
-                    'mercadopago_payment_id' => $paymentId,
+
+                $transaction->update([
                     'status' => 'approved',
                 ]);
+
+                return;
             }
+
+            FinancialTransaction::query()->create([
+                'user_id' => $userId,
+                'type' => 'credit',
+                'amount' => $credits,
+                'description' => 'Recarga de créditos via Mercado Pago',
+                'mercadopago_payment_id' => $paymentId,
+                'status' => 'approved',
+            ]);
         });
     }
 }

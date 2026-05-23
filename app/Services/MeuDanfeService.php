@@ -3,8 +3,9 @@
 namespace App\Services;
 
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Log;
-use App\Support\Masker; // Assumindo a criação de um helper
+use App\Support\Masker;
 use RuntimeException;
 
 class MeuDanfeService
@@ -16,17 +17,13 @@ class MeuDanfeService
         $response = $this->client()->put('/v2/fd/add/' . $accessKey);
 
         if ($response->failed()) {
-            Log::warning('MeuDanfe authentication failed when registering fiscal document.', [
+            Log::warning('Falha ao registrar documento no MeuDanfe.', [
                 'status' => $response->status(),
                 'body' => $response->body(),
                 'access_key' => Masker::mask($accessKey),
             ]);
 
-            throw new RuntimeException(sprintf(
-                'Não autenticado no MeuDanfe. Verifique MEUDANFE_API_KEY e MEUDANFE_BASE_URL. (%s %s)',
-                $response->status(),
-                $response->body(),
-            ));
+            $this->handleFailure($response, 'adicionar documento');
         }
     }
 
@@ -35,17 +32,13 @@ class MeuDanfeService
         $response = $this->client()->get('/v2/fd/get/xml/' . $accessKey);
 
         if ($response->failed()) {
-            Log::warning('MeuDanfe authentication failed when fetching XML.', [
+            Log::warning('Falha ao buscar XML no MeuDanfe.', [
                 'status' => $response->status(),
                 'body' => $response->body(),
                 'access_key' => Masker::mask($accessKey),
             ]);
 
-            throw new RuntimeException(sprintf(
-                'Não autenticado no MeuDanfe ao baixar XML. Verifique a chave da API. (%s %s)',
-                $response->status(),
-                $response->body(),
-            ));
+            $this->handleFailure($response, 'baixar XML');
         }
 
         return $response->body();
@@ -56,20 +49,42 @@ class MeuDanfeService
         $response = $this->client()->get('/v2/fd/get/da/' . $accessKey);
 
         if ($response->failed()) {
-            Log::warning('MeuDanfe authentication failed when fetching PDF.', [
+            Log::warning('Falha ao buscar PDF no MeuDanfe.', [
                 'status' => $response->status(),
                 'body' => $response->body(),
                 'access_key' => Masker::mask($accessKey),
             ]);
 
-            throw new RuntimeException(sprintf(
-                'Não autenticado no MeuDanfe ao baixar PDF. Verifique a chave da API. (%s %s)',
-                $response->status(),
-                $response->body(),
-            ));
+            $this->handleFailure($response, 'baixar PDF');
         }
 
         return $response->body();
+    }
+
+    /**
+     * Centraliza o tratamento de falhas da API.
+     */
+    private function handleFailure(Response $response, string $action): never
+    {
+        if ($response->status() === 401) {
+            throw new RuntimeException("Erro de autenticação no MeuDanfe ao $action. Verifique a API Key.");
+        }
+
+        $message = null;
+        try {
+            $json = $response->json();
+            $message = is_array($json) ? ($json['message'] ?? null) : null;
+        } catch (\Throwable) {
+            $message = null;
+        }
+        $message ??= $response->body();
+
+        throw new RuntimeException(sprintf(
+            'Erro na API MeuDanfe ao %s: %s (%s)',
+            $action,
+            $response->status(),
+            $message,
+        ));
     }
 
     private function client()
@@ -84,7 +99,6 @@ class MeuDanfeService
         return $this->http->baseUrl(rtrim($baseUrl, '/'))
             ->withHeaders([
                 'Api-Key' => $apiKey,
-                'Accept' => 'application/json',
             ]);
     }
 }
