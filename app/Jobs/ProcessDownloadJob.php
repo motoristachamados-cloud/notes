@@ -13,6 +13,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\RateLimited;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
+use App\Support\Masker;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -88,10 +89,7 @@ class ProcessDownloadJob implements ShouldQueue
      */
     public function handle(DownloadService $downloadService): void
     {
-        $maskedAccessKey =
-            substr($this->data->accessKey, 0, 6)
-            . str_repeat('*', max(0, strlen($this->data->accessKey) - 12))
-            . substr($this->data->accessKey, -6);
+        $maskedAccessKey = Masker::mask($this->data->accessKey);
 
         Log::info('Iniciando processamento de download.', [
             'user_id' => $this->user->id,
@@ -201,7 +199,6 @@ class ProcessDownloadJob implements ShouldQueue
             ]);
 
             throw $exception;
-
         } finally {
 
             /**

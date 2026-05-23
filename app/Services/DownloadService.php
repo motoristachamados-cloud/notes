@@ -3,16 +3,18 @@
 namespace App\Services;
 
 use App\DTOs\DownloadRequestData;
+use App\Models\FinancialTransaction;
 use App\Models\AccessKey;
+use App\Models\Wallet;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 class DownloadService
 {
-    public function __construct(private readonly MeuDanfeService $meuDanfe)
-    {
-    }
+    public function __construct(
+        private readonly MeuDanfeService $meuDanfe
+    ) {}
 
     /**
      * @return array{content: string, mime: string, filename: string}
@@ -20,6 +22,9 @@ class DownloadService
     public function download(User $user, DownloadRequestData $data): array
     {
         return DB::transaction(function () use ($user, $data): array {
+            /**
+             * 1. Verificar se o documento já foi pago anteriormente.
+             */
             $alreadyConsumed = AccessKey::query()
                 ->where('user_id', $user->id)
                 ->where('access_key', $data->accessKey)
@@ -27,26 +32,48 @@ class DownloadService
                 ->exists();
 
             if (! $alreadyConsumed) {
-                try {
-                    AccessKey::query()->create([
-                        'user_id' => $user->id,
-                        'access_key' => $data->accessKey,
-                        'type' => $data->type,
-                    ]);
-                } catch (\Illuminate\Database\QueryException $exception) {
-                    if (! str_contains($exception->getMessage(), 'uq_access_key_user_type')) {
-                        throw $exception;
-                    }
+                /**
+                 * 2. Bloquear carteira para atualização (lockForUpdate).
+                 * Evita concorrência e saldo negativo.
+                 */
+                $wallet = Wallet::query()
+                    ->where('user_id', $user->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$wallet || $wallet->balance < 1) {
+                    throw new RuntimeException('Saldo insuficiente para realizar o download.');
                 }
+
+                /**
+                 * 3. Registrar o consumo e realizar o débito.
+                 */
+                $wallet->decrement('balance', 1);
+
+                FinancialTransaction::query()->create([
+                    'user_id' => $user->id,
+                    'type' => 'debit',
+                    'amount' => 1,
+                    'description' => "Download de documento fiscal ({$data->type})",
+                ]);
+
+                AccessKey::query()->create([
+                    'user_id' => $user->id,
+                    'access_key' => $data->accessKey,
+                    'type' => $data->type,
+                ]);
             }
 
+            /**
+             * 4. Chamar a API externa.
+             */
             $this->meuDanfe->addFiscalDocument($data->accessKey);
 
             if ($data->type === 'xml') {
                 return [
                     'content' => $this->meuDanfe->getXml($data->accessKey),
                     'mime' => 'application/xml',
-                    'filename' => $data->accessKey.'.xml',
+                    'filename' => $data->accessKey . '.xml',
                 ];
             }
 
@@ -54,7 +81,7 @@ class DownloadService
                 return [
                     'content' => $this->meuDanfe->getPdf($data->accessKey),
                     'mime' => 'application/pdf',
-                    'filename' => $data->accessKey.'.pdf',
+                    'filename' => $data->accessKey . '.pdf',
                 ];
             }
 

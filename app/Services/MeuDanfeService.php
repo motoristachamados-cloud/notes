@@ -4,23 +4,22 @@ namespace App\Services;
 
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Facades\Log;
+use App\Support\Masker; // Assumindo a criação de um helper
 use RuntimeException;
 
 class MeuDanfeService
 {
-    public function __construct(private readonly HttpFactory $http)
-    {
-    }
+    public function __construct(private readonly HttpFactory $http) {}
 
     public function addFiscalDocument(string $accessKey): void
     {
-        $response = $this->client()->put('/v2/fd/add/'.$accessKey);
+        $response = $this->client()->put('/v2/fd/add/' . $accessKey);
 
         if ($response->failed()) {
             Log::warning('MeuDanfe authentication failed when registering fiscal document.', [
                 'status' => $response->status(),
                 'body' => $response->body(),
-                'access_key' => $this->maskKey($accessKey),
+                'access_key' => Masker::mask($accessKey),
             ]);
 
             throw new RuntimeException(sprintf(
@@ -33,13 +32,13 @@ class MeuDanfeService
 
     public function getXml(string $accessKey): string
     {
-        $response = $this->client()->get('/v2/fd/get/xml/'.$accessKey);
+        $response = $this->client()->get('/v2/fd/get/xml/' . $accessKey);
 
         if ($response->failed()) {
             Log::warning('MeuDanfe authentication failed when fetching XML.', [
                 'status' => $response->status(),
                 'body' => $response->body(),
-                'access_key' => $this->maskKey($accessKey),
+                'access_key' => Masker::mask($accessKey),
             ]);
 
             throw new RuntimeException(sprintf(
@@ -54,13 +53,13 @@ class MeuDanfeService
 
     public function getPdf(string $accessKey): string
     {
-        $response = $this->client()->get('/v2/fd/get/da/'.$accessKey);
+        $response = $this->client()->get('/v2/fd/get/da/' . $accessKey);
 
         if ($response->failed()) {
             Log::warning('MeuDanfe authentication failed when fetching PDF.', [
                 'status' => $response->status(),
                 'body' => $response->body(),
-                'access_key' => $this->maskKey($accessKey),
+                'access_key' => Masker::mask($accessKey),
             ]);
 
             throw new RuntimeException(sprintf(
@@ -87,19 +86,5 @@ class MeuDanfeService
                 'Api-Key' => $apiKey,
                 'Accept' => 'application/json',
             ]);
-    }
-
-    private function maskKey(string $accessKey): string
-    {
-        if (strlen($accessKey) < 12) {
-            return str_repeat('*', strlen($accessKey));
-        }
-
-        return sprintf(
-            '%s%s%s',
-            substr($accessKey, 0, 6),
-            str_repeat('*', max(0, strlen($accessKey) - 12)),
-            substr($accessKey, -6),
-        );
     }
 }

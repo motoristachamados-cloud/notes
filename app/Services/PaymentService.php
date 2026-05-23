@@ -15,8 +15,7 @@ class PaymentService
     public function __construct(
         private readonly SystemSettingsService $settings,
         private readonly HttpFactory $http,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{
@@ -88,100 +87,63 @@ class PaymentService
 
         $returnUrl = $appUrl . '/billing';
 
-        $response = $this->http
-            ->withToken($token)
-            ->acceptJson()
-            ->post('https://api.mercadopago.com/checkout/preferences', [
-                'items' => [
-                    [
-                        'title' => 'Créditos EBD SYSTEMS',
-                        'quantity' => $credits,
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Mercado Pago trabalha em reais
-                        |--------------------------------------------------------------------------
-                        */
-
-                        'unit_price' => round($creditPrice / 100, 2),
-
-                        'currency_id' => 'BRL',
-                    ],
-                ],
-
-                /*
-                |--------------------------------------------------------------------------
-                | REFERÊNCIA DO USUÁRIO
-                |--------------------------------------------------------------------------
-                */
-
-                'external_reference' => (string) $user->id,
-
-                /*
-                |--------------------------------------------------------------------------
-                | METADATA
-                |--------------------------------------------------------------------------
-                */
-
-                'metadata' => [
-                    'credits' => $credits,
-                    'user_id' => $user->id,
-                ],
-
-                /*
-                |--------------------------------------------------------------------------
-                | WEBHOOK
-                |--------------------------------------------------------------------------
-                */
-
-                'notification_url' => $webhookUrl,
-
-                /*
-                |--------------------------------------------------------------------------
-                | REDIRECTS
-                |--------------------------------------------------------------------------
-                */
-
-                'back_urls' => [
-                    'success' => $returnUrl,
-                    'pending' => $returnUrl,
-                    'failure' => $returnUrl,
-                ],
-
-                'auto_return' => 'approved',
-            ]);
-
-        if ($response->failed()) {
-            throw new RuntimeException(
-                'Falha ao criar preferência de pagamento no Mercado Pago.'
-            );
-        }
-
         /*
         |--------------------------------------------------------------------------
-        | AMBIENTE
+        | CRIAÇÃO DE PAGAMENTO PIX (API v1)
         |--------------------------------------------------------------------------
         */
 
-        $mode = (string) (
-            config('services.mercadopago.mode')
-            ?: 'production'
-        );
+        $response = $this->http->withToken($token)->acceptJson()->post('https://api.mercadopago.com/v1/payments', [
+            'transaction_amount' => round($amountCents / 100, 2),
+            'description' => "Recarga de {$credits} créditos",
+            'payment_method_id' => 'pix',
+            'external_reference' => (string) $user->id,
+            'notification_url' => $webhookUrl,
+            'payer' => [
+                'email' => $user->email,
+                'first_name' => explode(' ', $user->name)[0],
+            ],
+            'metadata' => [
+                'credits' => $credits,
+                'user_id' => $user->id,
+            ],
+        ]);
 
-        $checkoutUrl = $mode !== 'production'
-            ? $response->json('sandbox_init_point')
-            : $response->json('init_point');
-
-        if (! is_string($checkoutUrl) || $checkoutUrl === '') {
-            throw new RuntimeException(
-                'URL de checkout do Mercado Pago não foi retornada.'
-            );
+        if ($response->failed()) {
+            throw new RuntimeException('Falha ao gerar pagamento Pix no Mercado Pago: ' . $response->body());
         }
+
+        $paymentData = $response->json();
+        $paymentId = (string) $paymentData['id'];
+        $qrCode = $paymentData['point_of_interaction']['transaction_data']['qr_code'] ?? '';
+        $qrCodeBase64 = $paymentData['point_of_interaction']['transaction_data']['qr_code_base64'] ?? '';
+        $ticketUrl = $paymentData['point_of_interaction']['transaction_data']['ticket_url'] ?? '';
+
+        /*
+        |--------------------------------------------------------------------------
+        | PERSISTÊNCIA NO BANCO (STATUS PENDING)
+        |--------------------------------------------------------------------------
+        */
+        FinancialTransaction::query()->create([
+            'user_id' => $user->id,
+            'type' => 'credit',
+            'amount' => $credits,
+            'description' => "Recarga de créditos (Pix)",
+            'mercadopago_payment_id' => $paymentId,
+            'status' => 'pending',
+            'pix_qr_code' => $qrCode,
+            'pix_qr_code_base64' => $qrCodeBase64,
+            'external_link' => $ticketUrl,
+        ]);
 
         return [
             'credits' => $credits,
             'amount_cents' => $amountCents,
-            'checkout_url' => $checkoutUrl,
+            'payment_id' => $paymentId,
+            'qr_code' => $qrCode,
+            'qr_code_base64' => $qrCodeBase64,
+            'copy_link' => $qrCode,
+            'checkout_url' => $ticketUrl,
         ];
     }
 
@@ -210,20 +172,19 @@ class PaymentService
 
         if ($response->failed()) {
 
-    /*
+            /*
     |--------------------------------------------------------------------------
     | Mercado Pago envia IDs fictícios em testes webhook.
     |--------------------------------------------------------------------------
     */
 
-    if ($response->status() === 404) {
-        return;
-    }
+            if ($response->status() === 404) {
+                return;
+            }
 
-    throw new RuntimeException(
-        'Não foi possível validar pagamento no Mercado Pago.'
-    );
-
+            throw new RuntimeException(
+                'Não foi possível validar pagamento no Mercado Pago.'
+            );
         }
 
         /*
@@ -260,23 +221,11 @@ class PaymentService
         | TRANSAÇÃO
         |--------------------------------------------------------------------------
         */
-
-        DB::transaction(function () use (
-            $userId,
-            $credits,
-            $paymentId
-        ): void {
-
+        DB::transaction(function () use ($userId, $credits, $paymentId): void {
             $wallet = Wallet::query()
                 ->where('user_id', $userId)
                 ->lockForUpdate()
                 ->first();
-
-            /*
-            |--------------------------------------------------------------------------
-            | CRIA CARTEIRA
-            |--------------------------------------------------------------------------
-            */
 
             if ($wallet === null) {
                 $wallet = Wallet::query()->create([
@@ -285,18 +234,14 @@ class PaymentService
                 ]);
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | EVITA DUPLICIDADE
-            |--------------------------------------------------------------------------
-            */
-
-            $alreadyCredited = FinancialTransaction::query()
+            // Busca a transação existente criada no createPayment
+            $transaction = FinancialTransaction::query()
                 ->where('mercadopago_payment_id', $paymentId)
-                ->where('type', 'credit')
-                ->exists();
+                ->lockForUpdate()
+                ->first();
 
-            if ($alreadyCredited) {
+            // Se já estiver aprovada, não faz nada
+            if ($transaction && $transaction->status === 'approved') {
                 return;
             }
 
@@ -305,22 +250,20 @@ class PaymentService
             | ADICIONA SALDO
             |--------------------------------------------------------------------------
             */
-
             $wallet->increment('balance', $credits);
 
-            /*
-            |--------------------------------------------------------------------------
-            | REGISTRA TRANSAÇÃO
-            |--------------------------------------------------------------------------
-            */
-
-            FinancialTransaction::query()->create([
-                'user_id' => $userId,
-                'type' => 'credit',
-                'amount' => $credits,
-                'description' => 'Recarga de créditos via Mercado Pago',
-                'mercadopago_payment_id' => $paymentId,
-            ]);
+            if ($transaction) {
+                $transaction->update(['status' => 'approved']);
+            } else {
+                FinancialTransaction::query()->create([
+                    'user_id' => $userId,
+                    'type' => 'credit',
+                    'amount' => $credits,
+                    'description' => 'Recarga de créditos via Mercado Pago',
+                    'mercadopago_payment_id' => $paymentId,
+                    'status' => 'approved',
+                ]);
+            }
         });
     }
 }
