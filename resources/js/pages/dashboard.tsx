@@ -85,15 +85,18 @@ export default function Dashboard() {
                 .json()
                 .catch(() => null);
 
+            // Log de debug no console do navegador (F12)
+            console.log('Resposta da API de Pagamento:', { status: response.status, payload });
+
             // O service do Laravel retorna o objeto diretamente (sem a chave 'success').
             // Validamos se a resposta HTTP foi OK e se o qr_code está presente.
             if (!response.ok || !payload?.qr_code) {
                 const message =
                     payload?.message
                     || payload?.error
-                    || `Falha ao criar pagamento: ${response.status}`;
+                    || (payload ? JSON.stringify(payload) : `Erro HTTP ${response.status}`);
 
-                setQrError(message);
+                setQrError(`Falha ao criar pagamento: ${message}`);
                 setQrValue(null);
                 setQrBase64(null);
                 setCheckoutUrl(null);
@@ -125,9 +128,10 @@ export default function Dashboard() {
             );
 
         } catch (exception) {
+            console.error('Erro crítico no fetch:', exception);
 
             setQrError(
-                'Erro ao criar pagamento. Tente novamente mais tarde.',
+                `Erro de rede ou conexão: ${exception instanceof Error ? exception.message : 'Erro desconhecido'}`,
             );
             setQrValue(null);
             setQrBase64(null);
