@@ -1,5 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { PlaceholderPattern } from '@/components/ui/placeholder-pattern';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +33,7 @@ export default function Dashboard() {
     const [creditAmount, setCreditAmount] = useState('50');
 
     const [qrValue, setQrValue] = useState<string | null>(null);
+    const [qrBase64, setQrBase64] = useState<string | null>(null);
     const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
     const [qrError, setQrError] = useState<string | null>(null);
     const [qrStatus, setQrStatus] = useState<string | null>(null);
@@ -84,17 +85,18 @@ export default function Dashboard() {
                 .json()
                 .catch(() => null);
 
-            if (
-                !response.ok
-                || payload?.success !== true
-            ) {
+            // O service do Laravel retorna o objeto diretamente (sem a chave 'success').
+            // Validamos se a resposta HTTP foi OK e se o qr_code está presente.
+            if (!response.ok || !payload?.qr_code) {
                 const message =
                     payload?.message
+                    || payload?.error
                     || `Falha ao criar pagamento: ${response.status}`;
 
                 setQrError(message);
-
                 setQrValue(null);
+                setQrBase64(null);
+                setCheckoutUrl(null);
                 setQrStatus(null);
 
                 return;
@@ -102,25 +104,20 @@ export default function Dashboard() {
 
             const mpPixCode = payload?.qr_code;
             const mpCheckoutUrl = payload?.checkout_url;
+            const mpQrBase64 = payload?.qr_code_base64;
 
-            if (
-                !mpPixCode ||
-                !mpCheckoutUrl ||
-                typeof mpPixCode !== 'string' ||
-                typeof mpCheckoutUrl !== 'string'
-            ) {
+            if (!mpPixCode || !mpCheckoutUrl) {
                 setQrError(
                     'O servidor não retornou os dados de pagamento válidos.',
                 );
-
                 setQrValue(null);
+                setQrBase64(null);
                 setCheckoutUrl(null);
                 setQrStatus(null);
-
                 return;
             }
-
             setQrValue(mpPixCode);
+            setQrBase64(mpQrBase64);
             setCheckoutUrl(mpCheckoutUrl);
 
             setQrStatus(
@@ -132,11 +129,10 @@ export default function Dashboard() {
             setQrError(
                 'Erro ao criar pagamento. Tente novamente mais tarde.',
             );
-
             setQrValue(null);
+            setQrBase64(null);
             setCheckoutUrl(null);
             setQrStatus(null);
-
         } finally {
 
             setCreditLoading(false);
@@ -375,20 +371,41 @@ export default function Dashboard() {
                                     </p>
                                 </div>
 
-                                {checkoutUrl ? (
-                                    <a
-                                        href={checkoutUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-sm underline"
-                                    >
-                                        Abrir checkout Mercado Pago
-                                    </a>
-                                ) : (
-                                    <p className="text-sm text-muted-foreground">
-                                        Gere um pagamento no card ao lado
-                                    </p>
+                                {qrBase64 && (
+                                    <img
+                                        src={`data:image/png;base64,${qrBase64}`}
+                                        alt="QR Code PIX"
+                                        className="h-40 w-48 rounded-lg bg-white p-2 shadow-sm"
+                                    />
                                 )}
+
+                                <div className="flex flex-col items-center gap-2 w-full">
+                                    {qrValue && (
+                                        <div className="w-full px-4">
+                                            <Label className="text-[10px] uppercase text-muted-foreground">Pix Copia e Cola</Label>
+                                            <div
+                                                className="mt-1 break-all rounded border border-input bg-muted p-2 text-[10px] font-mono cursor-pointer hover:bg-muted/80"
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(qrValue);
+                                                    alert('Código Pix copiado!');
+                                                }}
+                                            >
+                                                {qrValue}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {checkoutUrl && (
+                                        <a
+                                            href={checkoutUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-xs underline text-muted-foreground hover:text-primary"
+                                        >
+                                            Pagar via site do Mercado Pago
+                                        </a>
+                                    )}
+                                </div>
 
                                 {qrStatus ? (
                                     <p className="text-center text-xs text-muted-foreground">
