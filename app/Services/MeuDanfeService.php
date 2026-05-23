@@ -80,8 +80,7 @@ class MeuDanfeService
         $message ??= $response->body();
 
         throw new RuntimeException(sprintf(
-            'Erro na API MeuDanfe ao %s: %s (%s)',
-            $action,
+            "Erro na API MeuDanfe ao $action: %s (%s)",
             $response->status(),
             $message,
         ));

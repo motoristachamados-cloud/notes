@@ -8,23 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('access_keys', function (Blueprint $table) {
-            $table->unique(['user_id', 'access_key', 'type']);
-        });
-
-        Schema::table('wallets', function (Blueprint $table) {
-            $table->unique('user_id');
-        });
+        // Os índices únicos já foram definidos nas migrations de criação das tabelas.
     }
 
     public function down(): void
     {
-        Schema::table('access_keys', function (Blueprint $table) {
-            $table->dropUnique(['user_id', 'access_key', 'type']);
-        });
-
-        Schema::table('wallets', function (Blueprint $table) {
-            $table->dropUnique(['user_id']);
-        });
     }
 };
